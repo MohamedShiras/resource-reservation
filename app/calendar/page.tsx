@@ -45,6 +45,8 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const user = await requireUser();
   const timeZone = getEnv().APP_TIMEZONE;
   const currentMonth = getCurrentMonth(timeZone);
+  const todayParts = getDateParts(new Date(), timeZone);
+  const todayKey = `${todayParts.year}-${todayParts.month}-${todayParts.day}`;
   const { month: requestedMonth } = await searchParams;
   const selectedMonth = normalizeMonth(requestedMonth, currentMonth);
   const data = { reservations: await getCalendarReservations(timeZone, selectedMonth, user.id) };
@@ -87,7 +89,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           {cells.map((day, index) => {
             const key = day === null ? `empty-${index}` : `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
             const reservations = day === null ? [] : reservationsByDay.get(key) ?? [];
-            return <div className={`calendar-cell${day === null ? " calendar-cell-empty" : ""}`} key={key}>{day !== null && <><time>{day}</time><div className="calendar-cell-reservations">{reservations.map((reservation) => { const isMine = reservation.reservedById === user.id; return <article className={`calendar-event ${isMine ? "calendar-event-mine" : "calendar-event-other"}`} key={reservation.id}><strong>{reservation.title}</strong><span>{reservation.resourceName}</span><small>{timeFormatter.format(new Date(reservation.startAt))}</small><small className="calendar-event-owner" title={isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}>{isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}</small></article>; })}</div></>}</div>;
+            return <div className={`calendar-cell${day === null ? " calendar-cell-empty" : ""}${key === todayKey ? " calendar-cell-today" : ""}`} key={key}>{day !== null && <><time>{key === todayKey ? <span className="calendar-today-number" aria-label="Today">{day}</span> : day}</time><div className="calendar-cell-reservations">{reservations.map((reservation) => { const isMine = reservation.reservedById === user.id; return <article className={`calendar-event ${isMine ? "calendar-event-mine" : "calendar-event-other"}`} key={reservation.id}><strong>{reservation.title}</strong><span>{reservation.resourceName}</span><small>{timeFormatter.format(new Date(reservation.startAt))}</small><small className="calendar-event-owner" title={isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}>{isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}</small></article>; })}</div></>}</div>;
           })}
         </div>
         {data.reservations.length === 0 && <div className="calendar-empty">No upcoming confirmed reservations.</div>}

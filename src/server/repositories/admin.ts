@@ -5,6 +5,8 @@ import { query } from "@/src/lib/db";
 export type AdminReservation = {
   id: number;
   title: string;
+  purpose: string | null;
+  hasConflict: boolean;
   status: string;
   priority: string;
   startAt: string;
@@ -29,7 +31,6 @@ export type AdminResource = {
 
 export type AdminResourceFormOptions = {
   categories: { id: number; name: string }[];
-  locations: { id: number; building: string; floorNo: number }[];
 };
 
 export type AdminUser = {
@@ -45,6 +46,15 @@ export async function getAdminReservations() {
     `SELECT
       reservations.id,
       reservations.title,
+      reservations.purpose,
+      EXISTS (
+        SELECT 1
+        FROM reservations AS confirmed
+        WHERE confirmed.resource_id = reservations.resource_id
+          AND confirmed.status::text = 'confirmed'
+          AND tstzrange(confirmed.start_at, confirmed.end_at, '[)')
+              && tstzrange(reservations.start_at, reservations.end_at, '[)')
+      ) AS "hasConflict",
       reservations.status::text AS status,
       reservations.priority::text AS priority,
       reservations.start_at AS "startAt",
@@ -56,9 +66,34 @@ export async function getAdminReservations() {
      JOIN resources ON resources.id = reservations.resource_id
      JOIN users ON users.id = reservations.reserved_by
      LEFT JOIN teams ON teams.id = reservations.team_id
+     WHERE reservations.end_at >= CURRENT_TIMESTAMP
      ORDER BY
        CASE WHEN reservations.status::text = 'confirmed' THEN 0 ELSE 1 END,
        reservations.start_at ASC`,
+  );
+  return result.rows;
+}
+
+export async function getAdminReservationHistory() {
+  const result = await query<AdminReservation>(
+    `SELECT
+      reservations.id,
+      reservations.title,
+      reservations.purpose,
+      false AS "hasConflict",
+      reservations.status::text AS status,
+      reservations.priority::text AS priority,
+      reservations.start_at AS "startAt",
+      reservations.end_at AS "endAt",
+      resources.name AS "resourceName",
+      users.full_name AS "reservedBy",
+      teams.name AS "teamName"
+     FROM reservations
+     JOIN resources ON resources.id = reservations.resource_id
+     JOIN users ON users.id = reservations.reserved_by
+     LEFT JOIN teams ON teams.id = reservations.team_id
+     WHERE reservations.end_at < CURRENT_TIMESTAMP
+     ORDER BY reservations.end_at DESC`,
   );
   return result.rows;
 }
@@ -88,17 +123,10 @@ export async function getAdminResources(): Promise<AdminResource[]> {
 }
 
 export async function getAdminResourceFormOptions(): Promise<AdminResourceFormOptions> {
-  const [categories, locations] = await Promise.all([
-    query<{ id: number; name: string }>(
-      `SELECT id, name FROM resource_categories ORDER BY name`,
-    ),
-    query<{ id: number; building: string; floorNo: number }>(
-      `SELECT id, building, floor_no AS "floorNo"
-       FROM locations
-       ORDER BY building, floor_no`,
-    ),
-  ]);
-  return { categories: categories.rows, locations: locations.rows };
+  const categories = await query<{ id: number; name: string }>(
+    `SELECT id, name FROM resource_categories ORDER BY name`,
+  );
+  return { categories: categories.rows };
 }
 
 export async function getAdminUsers(): Promise<AdminUser[]> {

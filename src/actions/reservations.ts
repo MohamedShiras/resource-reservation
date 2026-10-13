@@ -9,6 +9,7 @@ import { requireUser } from "@/src/server/auth";
 const requestSchema = z.object({
   resourceId: z.coerce.number().int().positive(),
   title: z.string().trim().min(1).max(120),
+  purpose: z.string().trim().min(1).max(2000),
   priority: z.enum(["low", "normal", "high", "urgent"]),
   startAt: z.string().min(1),
   endAt: z.string().min(1),
@@ -28,10 +29,10 @@ export async function requestReservation(formData: FormData) {
   try {
     await withTransaction(async (client) => {
       const result = await client.query<{ id: number }>(
-        `INSERT INTO reservations (resource_id, reserved_by, title, start_at, end_at, status, priority)
-         VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+        `INSERT INTO reservations (resource_id, reserved_by, title, purpose, start_at, end_at, status, priority)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
          RETURNING id`,
-        [parsed.data.resourceId, user.id, parsed.data.title, startAt, endAt, parsed.data.priority],
+        [parsed.data.resourceId, user.id, parsed.data.title, parsed.data.purpose, startAt, endAt, parsed.data.priority],
       );
       await client.query(
         `INSERT INTO reservation_audit_log (reservation_id, action, changed_by, note)
