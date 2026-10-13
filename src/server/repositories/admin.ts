@@ -20,6 +20,26 @@ export type AdminBookingOptions = {
   teams: { id: number; name: string }[];
 };
 
+export type AdminResource = {
+  id: number;
+  name: string;
+  kind: string;
+  status: string;
+};
+
+export type AdminResourceFormOptions = {
+  categories: { id: number; name: string }[];
+  locations: { id: number; building: string; floorNo: number }[];
+};
+
+export type AdminUser = {
+  id: number;
+  fullName: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+};
+
 export async function getAdminReservations() {
   const result = await query<AdminReservation>(
     `SELECT
@@ -36,11 +56,6 @@ export async function getAdminReservations() {
      JOIN resources ON resources.id = reservations.resource_id
      JOIN users ON users.id = reservations.reserved_by
      LEFT JOIN teams ON teams.id = reservations.team_id
-     WHERE reservations.status::text <> 'confirmed'
-        OR (
-          reservations.start_at >= CURRENT_TIMESTAMP
-          AND reservations.start_at < CURRENT_TIMESTAMP + INTERVAL '7 days'
-        )
      ORDER BY
        CASE WHEN reservations.status::text = 'confirmed' THEN 0 ELSE 1 END,
        reservations.start_at ASC`,
@@ -61,4 +76,41 @@ export async function getAdminBookingOptions(): Promise<AdminBookingOptions> {
     ),
   ]);
   return { resources: resources.rows, users: users.rows, teams: teams.rows };
+}
+
+export async function getAdminResources(): Promise<AdminResource[]> {
+  const result = await query<AdminResource>(
+    `SELECT id, name, kind::text, status::text
+     FROM resources
+     ORDER BY name`,
+  );
+  return result.rows;
+}
+
+export async function getAdminResourceFormOptions(): Promise<AdminResourceFormOptions> {
+  const [categories, locations] = await Promise.all([
+    query<{ id: number; name: string }>(
+      `SELECT id, name FROM resource_categories ORDER BY name`,
+    ),
+    query<{ id: number; building: string; floorNo: number }>(
+      `SELECT id, building, floor_no AS "floorNo"
+       FROM locations
+       ORDER BY building, floor_no`,
+    ),
+  ]);
+  return { categories: categories.rows, locations: locations.rows };
+}
+
+export async function getAdminUsers(): Promise<AdminUser[]> {
+  const result = await query<AdminUser>(
+    `SELECT
+       id,
+       full_name AS "fullName",
+       email,
+       role::text,
+       is_active AS "isActive"
+     FROM users
+     ORDER BY full_name`,
+  );
+  return result.rows;
 }
