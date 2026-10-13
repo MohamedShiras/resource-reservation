@@ -12,7 +12,7 @@ export default async function Home() {
     redirect("/admin");
   }
   const { APP_TIMEZONE } = getEnv();
-  const dashboard = await getDashboardData(APP_TIMEZONE);
+  const dashboard = await getDashboardData(APP_TIMEZONE, user.id);
 
   return (
     <main className="app-shell">
@@ -76,7 +76,7 @@ export default async function Home() {
 
           <div className="dashboard-grid">
             <section className="panel schedule-panel" id="calendar">
-              <div className="panel-header"><div><h2>Upcoming schedule</h2><p>Confirmed reservations from your workspace</p></div><a href="/calendar">View calendar <span>→</span></a></div>
+              <div className="panel-header"><div><h2>Upcoming schedule</h2><p>Your confirmed reservations</p></div><a href="/calendar">View calendar <span>→</span></a></div>
               <div className={dashboard.reservations.length === 0 ? "empty-state" : "schedule-list"}>
                 {dashboard.reservations.length > 0 ? dashboard.reservations.map((reservation) => (
                   <div className="timeline-row" key={`${reservation.title}-${reservation.startAt}`}>
@@ -85,8 +85,8 @@ export default async function Home() {
                   </div>
                 )) : (<>
                   <span className="empty-state-icon">▣</span>
-                  <strong>No bookings yet</strong>
-                  <p>Confirmed reservations will appear here.</p>
+                  <strong>No upcoming bookings</strong>
+                  <p>Your confirmed reservations will appear here.</p>
                 </>)}
               </div>
               <a className="outline-button full-width" href="/my-bookings">See all bookings <span>→</span></a>

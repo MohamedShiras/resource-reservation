@@ -1,19 +1,102 @@
 import Link from "next/link";
 import { connection } from "next/server";
-import { getDashboardData } from "@/src/server/repositories/dashboard";
+import { getCalendarReservations, type DashboardReservation } from "@/src/server/repositories/dashboard";
 import { getEnv } from "@/src/lib/env";
 import { requireUser } from "@/src/server/auth";
 
-export default async function CalendarPage() {
+function getDateParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone,
+  }).formatToParts(date);
+  return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value])) as {
+    year: string;
+    month: string;
+    day: string;
+  };
+}
+
+function dateKey(date: Date, timeZone: string) {
+  const parts = getDateParts(date, timeZone);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getCurrentMonth(timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", timeZone }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}`;
+}
+
+function normalizeMonth(value: string | undefined, fallback: string) {
+  if (!value || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return fallback;
+  return value;
+}
+
+function shiftMonth(month: string, amount: number) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, monthNumber - 1 + amount, 1));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+export default async function CalendarPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   await connection();
-  await requireUser();
-  const data = await getDashboardData(getEnv().APP_TIMEZONE);
+  const user = await requireUser();
+  const timeZone = getEnv().APP_TIMEZONE;
+  const currentMonth = getCurrentMonth(timeZone);
+  const { month: requestedMonth } = await searchParams;
+  const selectedMonth = normalizeMonth(requestedMonth, currentMonth);
+  const data = { reservations: await getCalendarReservations(timeZone, selectedMonth, user.id) };
+  const [selectedYear, selectedMonthNumber] = selectedMonth.split("-").map(Number);
+  const year = selectedYear;
+  const month = selectedMonthNumber - 1;
+  const monthStart = new Date(Date.UTC(year, month, 1));
+  const monthName = new Intl.DateTimeFormat("en", { month: "long", year: "numeric", timeZone }).format(monthStart);
+  const previousMonth = shiftMonth(selectedMonth, -1);
+  const nextMonth = shiftMonth(selectedMonth, 1);
+  const firstWeekday = (monthStart.getUTCDay() + 6) % 7;
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const cells = Array.from({ length: Math.ceil((firstWeekday + daysInMonth) / 7) * 7 }, (_, index) => {
+    const day = index - firstWeekday + 1;
+    return day > 0 && day <= daysInMonth ? day : null;
+  });
+  const reservationsByDay = new Map<string, DashboardReservation[]>();
+
+  for (const reservation of data.reservations) {
+    const key = dateKey(new Date(reservation.startAt), timeZone);
+    const reservations = reservationsByDay.get(key) ?? [];
+    reservations.push(reservation);
+    reservationsByDay.set(key, reservations);
+  }
+
+  for (const reservations of reservationsByDay.values()) {
+    reservations.sort((left, right) => Number(right.reservedById === user.id) - Number(left.reservedById === user.id) || new Date(left.startAt).valueOf() - new Date(right.startAt).valueOf());
+  }
+
+  const timeFormatter = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", timeZone });
 
   return (
     <main className="simple-page">
-      <div className="simple-page-header"><div><Link className="back-link" href="/">← Back to overview</Link><p className="eyebrow">Workspace</p><h1>Calendar</h1><p className="heading-subtitle">See confirmed reservations across your resources.</p></div><Link className="primary-button" href="/reservations/new"><span>+</span> New reservation</Link></div>
-      <section className="simple-panel">
-        {data.reservations.length === 0 ? <div className="empty-state"><strong>No confirmed reservations</strong><p>Create a reservation to see it on the calendar.</p></div> : data.reservations.map((reservation) => <article className="calendar-row" key={`${reservation.title}-${reservation.startAt}`}><time dateTime={reservation.startAt}>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short", timeZone: getEnv().APP_TIMEZONE }).format(new Date(reservation.startAt))}</time><div><strong>{reservation.title}</strong><p>{reservation.resourceName}</p></div></article>)}
+      <div className="simple-page-header"><div><Link className="back-link" href="/">← Back to overview</Link><p className="eyebrow">Workspace</p><h1>Calendar</h1><p className="heading-subtitle">Check your reservations and workspace availability at a glance.</p></div><Link className="primary-button" href="/reservations/new"><span>+</span> New reservation</Link></div>
+      <section className="calendar-legend" aria-label="Calendar reservation types"><span className="calendar-legend-item"><i className="calendar-dot mine" /> My reservations</span><span className="calendar-legend-item"><i className="calendar-dot other" /> Other reservations</span></section>
+      <section className="simple-panel calendar-panel">
+        <div className="calendar-toolbar"><div className="calendar-month-navigation"><Link className="calendar-nav-button" href={`/calendar?month=${previousMonth}`} aria-label="Previous month">←</Link><h2>{monthName}</h2><Link className="calendar-nav-button" href={`/calendar?month=${nextMonth}`} aria-label="Next month">→</Link><Link className="calendar-today-button" href="/calendar">Today</Link></div><span>{data.reservations.length} confirmed reservation{data.reservations.length === 1 ? "" : "s"} this month</span></div>
+        <div className="calendar-weekdays">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <span key={day}>{day}</span>)}</div>
+        <div className="calendar-grid">
+          {cells.map((day, index) => {
+            const key = day === null ? `empty-${index}` : `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            const reservations = day === null ? [] : reservationsByDay.get(key) ?? [];
+            return <div className={`calendar-cell${day === null ? " calendar-cell-empty" : ""}`} key={key}>{day !== null && <><time>{day}</time><div className="calendar-cell-reservations">{reservations.map((reservation) => { const isMine = reservation.reservedById === user.id; return <article className={`calendar-event ${isMine ? "calendar-event-mine" : "calendar-event-other"}`} key={reservation.id}><strong>{reservation.title}</strong><span>{reservation.resourceName}</span><small>{timeFormatter.format(new Date(reservation.startAt))}</small><small className="calendar-event-owner" title={isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}>{isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}</small></article>; })}</div></>}</div>;
+          })}
+        </div>
+        {data.reservations.length === 0 && <div className="calendar-empty">No upcoming confirmed reservations.</div>}
+      </section>
+      <section className="simple-panel calendar-confirmed-list">
+        <div className="panel-header">
+          <div><h2>Confirmed reservations</h2><p>All confirmed workspace reservations for {monthName}.</p></div>
+        </div>
+        {data.reservations.length === 0 ? <div className="calendar-list-empty">No confirmed reservations this month.</div> : <div className="calendar-reservation-list">{data.reservations.map((reservation) => { const isMine = reservation.reservedById === user.id; return <article className="calendar-reservation-item" key={reservation.id}><div className={`calendar-reservation-marker ${isMine ? "mine" : "other"}`} /><div className="calendar-reservation-copy"><strong>{reservation.title}</strong><span>{reservation.resourceName}</span><small>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(reservation.startAt))}</small></div><div className={`calendar-reservation-owner ${isMine ? "mine" : "other"}`}>{isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}</div></article>; })}</div>}
       </section>
     </main>
   );

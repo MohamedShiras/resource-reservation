@@ -3,16 +3,20 @@ import "server-only";
 import { query } from "@/src/lib/db";
 
 export type DashboardResource = {
+  id: number;
   name: string;
   kind: string;
   status: string;
 };
 
 export type DashboardReservation = {
+  id: number;
   title: string;
   startAt: string;
   endAt: string;
   resourceName: string;
+  reservedBy: string;
+  reservedById: number;
 };
 
 export type DashboardData = {
@@ -24,7 +28,38 @@ export type DashboardData = {
   reservations: DashboardReservation[];
 };
 
-export async function getDashboardData(timeZone: string): Promise<DashboardData> {
+export async function getCalendarReservations(
+  timeZone: string,
+  month: string,
+  userId: number,
+): Promise<DashboardReservation[]> {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const startDate = `${month}-01`;
+  const endDate = new Date(Date.UTC(year, monthNumber, 1)).toISOString().slice(0, 10);
+  const result = await query<DashboardReservation>(
+    `SELECT
+      reservations.id,
+      reservations.title,
+      reservations.start_at AS "startAt",
+      reservations.end_at AS "endAt",
+      resources.name AS "resourceName",
+      users.full_name AS "reservedBy",
+      reservations.reserved_by AS "reservedById"
+     FROM reservations
+     JOIN resources ON resources.id = reservations.resource_id
+     JOIN users ON users.id = reservations.reserved_by
+     WHERE reservations.status::text = 'confirmed'
+       AND (reservations.start_at AT TIME ZONE $1)::date < $3::date
+       AND (reservations.end_at AT TIME ZONE $1)::date >= $2::date
+     ORDER BY
+       CASE WHEN reservations.reserved_by = $4 THEN 0 ELSE 1 END,
+       reservations.start_at`,
+    [timeZone, startDate, endDate, userId],
+  );
+  return result.rows;
+}
+
+export async function getDashboardData(timeZone: string, reservationUserId?: number): Promise<DashboardData> {
   const [resourceSummary, bookingSummary, resources, reservations] = await Promise.all([
     query<{ resource_count: number; available_resource_count: number }>(
       `SELECT
@@ -45,21 +80,28 @@ export async function getDashboardData(timeZone: string): Promise<DashboardData>
       [timeZone],
     ),
     query<DashboardResource>(
-      `SELECT name, kind::text, status::text
+      `SELECT id, name, kind::text, status::text
        FROM resources
        ORDER BY name`,
     ),
     query<DashboardReservation>(
       `SELECT
+        reservations.id,
         reservations.title,
         reservations.start_at AS "startAt",
         reservations.end_at AS "endAt",
-        resources.name AS "resourceName"
+        resources.name AS "resourceName",
+        users.full_name AS "reservedBy",
+        reservations.reserved_by AS "reservedById"
        FROM reservations
        JOIN resources ON resources.id = reservations.resource_id
+       JOIN users ON users.id = reservations.reserved_by
        WHERE reservations.status::text = 'confirmed'
+         AND reservations.end_at >= CURRENT_TIMESTAMP
+         ${reservationUserId === undefined ? "" : "AND reservations.reserved_by = $1"}
        ORDER BY reservations.start_at
-       LIMIT 10`,
+       LIMIT 100`,
+      reservationUserId === undefined ? undefined : [reservationUserId],
     ),
   ]);
 

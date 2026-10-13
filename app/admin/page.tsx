@@ -10,7 +10,7 @@ export default async function AdminPage() {
   const admin = await requireAdmin();
   const reservations = await getAdminReservations();
   const sections = [
-    { status: "confirmed", title: "Confirmed reservations", description: "Upcoming confirmed reservations for the next 7 days.", empty: "No confirmed reservations in the next 7 days." },
+    { status: "confirmed", title: "Confirmed reservations", description: "All confirmed reservations across your workspace.", empty: "No confirmed reservations." },
     { status: "pending", title: "Pending requests", description: "Requests waiting for an administrator decision.", empty: "No pending requests." },
     { status: "cancelled", title: "Cancelled reservations", description: "Reservations cancelled by a member or administrator.", empty: "No cancelled reservations." },
     { status: "rejected", title: "Rejected reservations", description: "Requests that were not approved.", empty: "No rejected reservations." },
@@ -27,7 +27,7 @@ export default async function AdminPage() {
 
   return (
     <main className="simple-page">
-      <div className="simple-page-header"><div><p className="eyebrow">Administrator workspace</p><h1>Operations overview</h1><p className="heading-subtitle">Review reservations and create bookings for members or teams.</p></div><Link className="primary-button" href="/admin/reservations/new"><span>+</span> Book for someone</Link></div>
+      <div className="simple-page-header"><div><p className="eyebrow">Administrator workspace</p><h1>Operations overview</h1><p className="heading-subtitle">Review reservations and create bookings for members or teams.</p></div><div className="admin-header-actions"><Link className="outline-button" href="/admin/users/new">Manage users</Link><Link className="outline-button" href="/admin/resources/new">Add resource</Link><Link className="primary-button" href="/admin/reservations/new"><span>+</span> Book for someone</Link></div></div>
       <section className="admin-banner"><div><strong>Signed in as {admin.fullName}</strong><span>Admin controls are enabled for this account.</span></div><form action={signOut}><button className="outline-button" type="submit">Sign out</button></form></section>
       <section className="admin-sections">
         {sections.map((section) => {
