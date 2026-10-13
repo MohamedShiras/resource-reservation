@@ -25,8 +25,8 @@ export async function createUser(formData: FormData) {
   try {
     const passwordHash = await bcrypt.hash(parsed.data.password, 10);
     await query(
-      `INSERT INTO users (full_name, email, password_hash, role, is_active)
-       VALUES ($1, $2, $3, $4, true)`,
+      `INSERT INTO users (full_name, email, password_hash, role, is_active, temporary_password)
+       VALUES ($1, $2, $3, $4, true, 0)`,
       [parsed.data.fullName, parsed.data.email, passwordHash, parsed.data.role],
     );
   } catch {

@@ -26,24 +26,22 @@ export default async function Home() {
         </div>
 
         <nav className="sidebar-nav" aria-label="Main navigation">
-          <a className="nav-item active" href="#overview"><span className="nav-icon">□</span>Overview</a>
-          <a className="nav-item" href="/resources"><span className="nav-icon">◈</span>Resources</a>
-          <a className="nav-item" href="/calendar"><span className="nav-icon">▣</span>Calendar</a>
-          <a className="nav-item" href="/my-bookings"><span className="nav-icon">✓</span>My bookings</a>
+          <a className="nav-item active" href="#overview"><span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="3.5" y="3.5" width="5" height="5" rx="1" /><rect x="11.5" y="3.5" width="5" height="5" rx="1" /><rect x="3.5" y="11.5" width="5" height="5" rx="1" /><rect x="11.5" y="11.5" width="5" height="5" rx="1" /></svg></span>Overview</a>
+          <a className="nav-item" href="/resources"><span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="m10 2.8 7 7.2-7 7.2-7-7.2 7-7.2Z" /><circle cx="10" cy="10" r="2.1" /></svg></span>Resources</a>
+          <a className="nav-item" href="/calendar"><span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><rect x="3" y="4.5" width="14" height="12" rx="2" /><path d="M6.5 2.8v3M13.5 2.8v3M3 8h14" /></svg></span>Calendar</a>
+          <a className="nav-item" href="/my-bookings"><span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"><rect x="3" y="4.5" width="14" height="12" rx="2" /><path d="M6.5 2.8v3M13.5 2.8v3M3 8h14M6.5 11.5h.01M10 11.5h.01M13.5 11.5h.01M6.5 14.5h.01M10 14.5h.01" /></svg></span>My bookings</a>
         </nav>
 
         <div className="sidebar-section-label">Workspace</div>
         <nav className="sidebar-nav" aria-label="Workspace navigation">
-          <a className="nav-item" href="#teams"><span className="nav-icon">◉</span>Teams</a>
-          <a className="nav-item" href="#reports"><span className="nav-icon">▤</span>Reports</a>
+          <a className="nav-item" href="#teams"><span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><circle cx="7" cy="8" r="2.7" /><circle cx="13.5" cy="8.5" r="2.1" /><path d="M2.8 16c.5-2.2 2-3.4 4.2-3.4s3.7 1.2 4.2 3.4M11 15.8c.3-1.6 1.3-2.5 2.8-2.5 1.4 0 2.4.8 2.8 2.5" /></svg></span>Teams</a>
+          <a className="nav-item" href="#reports"><span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"><path d="M4 16V9M10 16V4M16 16v-5M3 16.5h14" /></svg></span>Reports</a>
         </nav>
 
         <div className="sidebar-bottom">
-          <a className="nav-item" href="#settings"><span className="nav-icon">⚙</span>Settings</a>
           <div className="profile">
             <div className="avatar">{user.fullName.slice(0, 2).toUpperCase()}</div>
             <div><strong>{user.fullName}</strong><span>{user.role}</span></div>
-            <form action={signOut}><button className="profile-sign-out" type="submit">Sign out</button></form>
           </div>
         </div>
       </aside>
@@ -52,8 +50,7 @@ export default async function Home() {
         <header className="topbar">
           <div className="breadcrumb"><span>Workspace</span><b>/</b><strong>Overview</strong></div>
           <div className="topbar-actions">
-            <button className="icon-button" aria-label="Notifications">♧<span className="notification-dot" /></button>
-            <div className="topbar-avatar">{user.fullName.slice(0, 2).toUpperCase()}</div>
+            <form action={signOut}><button className="topbar-sign-out" type="submit">Sign out</button></form>
           </div>
         </header>
 
@@ -68,8 +65,6 @@ export default async function Home() {
           </div>
 
           <div className="stat-grid">
-            <article className="stat-card"><div className="stat-card-top"><span>Today&apos;s bookings</span><span className="stat-icon blue">▣</span></div><strong>{dashboard.bookingCount}</strong><p>Confirmed reservations today</p></article>
-            <article className="stat-card"><div className="stat-card-top"><span>Available now</span><span className="stat-icon green">◈</span></div><strong>{dashboard.availableResourceCount} <small>/ {dashboard.resourceCount}</small></strong><p>Resources available</p></article>
             <article className="stat-card"><div className="stat-card-top"><span>Upcoming bookings</span><span className="stat-icon purple">✓</span></div><strong>{dashboard.upcomingBookingCount}</strong><p>Confirmed future reservations</p></article>
             <article className="stat-card"><div className="stat-card-top"><span>Utilization</span><span className="stat-icon orange">◒</span></div><strong>—</strong><p>No utilization data yet</p></article>
           </div>
@@ -107,10 +102,6 @@ export default async function Home() {
             </section>
           </div>
 
-          <section className="quick-booking">
-            <div className="quick-copy"><span className="quick-spark">✦</span><div><h2>Find the right space</h2><p>Search availability and book a resource in seconds.</p></div></div>
-            <a className="search-control" href="/resources"><span>⌕</span><span className="search-placeholder">Search rooms, equipment, or amenities</span><span className="search-submit">Search</span></a>
-          </section>
         </div>
       </section>
     </main>
