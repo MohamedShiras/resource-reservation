@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { withTransaction } from "@/src/lib/db";
 import { requireAdmin } from "@/src/server/auth";
+import { sendReservationSms } from "@/src/lib/sms";
 
 export async function decideReservation(formData: FormData) {
   const admin = await requireAdmin();
@@ -11,6 +12,8 @@ export async function decideReservation(formData: FormData) {
   const decision = formData.get("decision");
   const startAt = formData.get("startAt");
   const endAt = formData.get("endAt");
+  const revokedReservations: { userId: number; title: string }[] = [];
+  let notification: { userId: number; message: string } | null = null;
   if (!Number.isInteger(reservationId) || !["approve", "reject", "revoke-and-approve", "adjust-and-approve"].includes(String(decision))) {
     redirect("/admin?error=Invalid reservation decision");
   }
@@ -19,11 +22,13 @@ export async function decideReservation(formData: FormData) {
     await withTransaction(async (client) => {
       const current = await client.query<{
         resource_id: number;
+        reserved_by: number;
+        title: string;
         start_at: Date;
         end_at: Date;
         priority: string;
       }>(
-        `SELECT id, resource_id, start_at, end_at, priority::text AS priority
+        `SELECT id, resource_id, reserved_by, title, start_at, end_at, priority::text AS priority
          FROM reservations WHERE id = $1 AND status = 'pending' FOR UPDATE`,
         [reservationId],
       );
@@ -44,8 +49,8 @@ export async function decideReservation(formData: FormData) {
         );
       }
 
-      const overlaps = await client.query<{ id: number }>(
-        `SELECT id
+      const overlaps = await client.query<{ id: number; userId: number; title: string }>(
+      `SELECT id, reserved_by AS "userId", title
          FROM reservations
          WHERE resource_id = $1 AND status = 'confirmed'
            AND tstzrange(start_at, end_at, '[)') && tstzrange($2, $3, '[)')
@@ -66,6 +71,7 @@ export async function decideReservation(formData: FormData) {
            WHERE id = ANY($1::bigint[])`,
           [overlaps.rows.map((overlap) => overlap.id)],
         );
+        revokedReservations.push(...overlaps.rows);
         for (const overlap of overlaps.rows) {
           await client.query(
             `INSERT INTO reservation_audit_log (reservation_id, action, changed_by, note)
@@ -89,6 +95,12 @@ export async function decideReservation(formData: FormData) {
           [reservationId],
         );
       }
+      notification = {
+        userId: reservation.reserved_by,
+        message: decision === "reject"
+          ? `Your reservation "${reservation.title}" was rejected.`
+          : `Your reservation "${reservation.title}" was approved.`,
+      };
       await client.query(
         `INSERT INTO reservation_audit_log (reservation_id, action, changed_by, note)
          VALUES ($1, 'updated', $2, $3)`,
@@ -98,6 +110,17 @@ export async function decideReservation(formData: FormData) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "The reservation decision could not be completed";
     redirect(`/admin?error=${encodeURIComponent(message)}`);
+  }
+  if (notification) {
+    const note = notification as { userId: number; message: string };
+    try {
+      await sendReservationSms(note.userId, note.message);
+      for (const revoked of revokedReservations) {
+        await sendReservationSms(revoked.userId, `Your confirmed reservation "${revoked.title}" was cancelled because the resource was reassigned.`);
+      }
+    } catch (error) {
+      console.error("Reservation decision saved, but an SMS notification failed.", error);
+    }
   }
   revalidatePath("/admin");
   revalidatePath("/");
