@@ -27,6 +27,15 @@ export type AdminResource = {
   name: string;
   kind: string;
   status: string;
+  activeMaintenanceId: number | null;
+};
+
+export type AdminMaintenanceHistory = {
+  id: number;
+  resourceName: string;
+  startAt: string;
+  endAt: string;
+  reason: string;
 };
 
 export type AdminResourceFormOptions = {
@@ -115,9 +124,38 @@ export async function getAdminBookingOptions(): Promise<AdminBookingOptions> {
 
 export async function getAdminResources(): Promise<AdminResource[]> {
   const result = await query<AdminResource>(
-    `SELECT id, name, kind::text, status::text
+    `SELECT resources.id, resources.name, resources.kind::text,
+            active_blackout.id AS "activeMaintenanceId",
+            CASE WHEN active_blackout.id IS NOT NULL
+            THEN 'maintenance' ELSE resources.status::text END AS status
      FROM resources
+     LEFT JOIN LATERAL (
+       SELECT blackouts.id
+       FROM blackouts
+       WHERE blackouts.resource_id = resources.id
+         AND blackouts.active = true
+         AND blackouts.start_at <= CURRENT_TIMESTAMP
+         AND blackouts.end_at > CURRENT_TIMESTAMP
+       ORDER BY blackouts.start_at DESC
+       LIMIT 1
+     ) AS active_blackout ON true
      ORDER BY name`,
+  );
+  return result.rows;
+}
+
+export async function getAdminMaintenanceHistory(): Promise<AdminMaintenanceHistory[]> {
+  const result = await query<AdminMaintenanceHistory>(
+    `SELECT
+       blackouts.id,
+       resources.name AS "resourceName",
+       blackouts.start_at AS "startAt",
+       blackouts.end_at AS "endAt",
+       blackouts.reason
+     FROM blackouts
+     JOIN resources ON resources.id = blackouts.resource_id
+     WHERE blackouts.active = false OR blackouts.end_at <= CURRENT_TIMESTAMP
+     ORDER BY blackouts.end_at DESC`,
   );
   return result.rows;
 }

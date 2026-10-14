@@ -67,6 +67,18 @@ export async function createAdminReservation(formData: FormData) {
          FOR UPDATE`,
         [parsed.resourceId, startAt, endAt],
       );
+      const maintenance = await client.query(
+         `SELECT id
+          FROM blackouts
+          WHERE resource_id = $1
+            AND active = true
+            AND tstzrange(start_at, end_at, '[)') && tstzrange($2::timestamptz, $3::timestamptz, '[)')
+          LIMIT 1`,
+         [parsed.resourceId, startAt, endAt],
+      );
+      if (maintenance.rowCount) {
+         throw new Error("The resource is scheduled for maintenance during this time");
+      }
       if (conflicts.rowCount && decision === "approve") {
         throw new Error("A confirmed reservation overlaps this time");
       }

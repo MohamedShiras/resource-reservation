@@ -32,12 +32,6 @@ export default async function Home() {
           <a className="nav-item" href="/my-bookings"><span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"><rect x="3" y="4.5" width="14" height="12" rx="2" /><path d="M6.5 2.8v3M13.5 2.8v3M3 8h14M6.5 11.5h.01M10 11.5h.01M13.5 11.5h.01M6.5 14.5h.01M10 14.5h.01" /></svg></span>My bookings</a>
         </nav>
 
-        <div className="sidebar-section-label">Workspace</div>
-        <nav className="sidebar-nav" aria-label="Workspace navigation">
-          <a className="nav-item" href="#teams"><span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><circle cx="7" cy="8" r="2.7" /><circle cx="13.5" cy="8.5" r="2.1" /><path d="M2.8 16c.5-2.2 2-3.4 4.2-3.4s3.7 1.2 4.2 3.4M11 15.8c.3-1.6 1.3-2.5 2.8-2.5 1.4 0 2.4.8 2.8 2.5" /></svg></span>Teams</a>
-          <a className="nav-item" href="#reports"><span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"><path d="M4 16V9M10 16V4M16 16v-5M3 16.5h14" /></svg></span>Reports</a>
-        </nav>
-
         <div className="sidebar-bottom">
           <div className="profile">
             <div className="avatar">{user.fullName.slice(0, 2).toUpperCase()}</div>
@@ -91,14 +85,13 @@ export default async function Home() {
               <div className="panel-header"><div><h2>Resource availability</h2><p>Live status across your workspace</p></div><a href="/resources">View all <span>→</span></a></div>
               <div className={dashboard.resources.length === 0 ? "empty-state resource-empty-state" : "resource-list"}>
                 {dashboard.resources.length > 0 ? dashboard.resources.map((resource) => (
-                  <div className="resource-row" key={resource.name}><span className={`resource-dot ${resource.kind === "facility" ? "blue" : "emerald"}`} /><div className="resource-info"><strong>{resource.name}</strong><span>{resource.kind}</span></div><span className={`status ${resource.status === "available" ? "available" : "in-use"}`}>{resource.status}</span></div>
+                  <div className="resource-row" key={resource.name}><span className={`resource-dot ${resource.kind === "facility" ? "blue" : "emerald"}`} /><div className="resource-info"><strong>{resource.name}</strong><span>{resource.kind}</span></div><span className={`status ${resource.status === "available" ? "available" : resource.status === "maintenance" ? "maintenance" : "in-use"}`}>{resource.status}</span></div>
                 )) : (<>
                   <span className="empty-state-icon">◈</span>
                   <strong>No resources yet</strong>
                   <p>Resources will appear here after they are added.</p>
                 </>)}
               </div>
-              <div className="availability-summary"><span className="summary-ring">{dashboard.resourceCount > 0 ? `${Math.round((dashboard.availableResourceCount / dashboard.resourceCount) * 100)}%` : "—"}</span><div><strong>{dashboard.resourceCount > 0 ? "Live availability" : "Availability unavailable"}</strong><p>{dashboard.resourceCount > 0 ? `${dashboard.availableResourceCount} of ${dashboard.resourceCount} resources are available` : "Add resources to see live availability."}</p></div></div>
             </section>
           </div>
 

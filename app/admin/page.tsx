@@ -18,10 +18,11 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     getDashboardData(getEnv().APP_TIMEZONE),
   ]);
   const sections = [
-    { status: "confirmed", title: "Confirmed reservations", description: "All confirmed reservations across your workspace.", empty: "No confirmed reservations." },
-    { status: "pending", title: "Pending requests", description: "Requests waiting for an administrator decision.", empty: "No pending requests." },
-    { status: "cancelled", title: "Cancelled reservations", description: "Reservations cancelled by a member or administrator.", empty: "No cancelled reservations." },
-    { status: "rejected", title: "Rejected reservations", description: "Requests that were not approved.", empty: "No rejected reservations." },
+    { source: "reservations", status: "confirmed", title: "Confirmed reservations", empty: "No confirmed reservations." },
+    { source: "reservations", status: "pending", title: "Pending requests", empty: "No pending requests." },
+    { source: "reservations", status: "cancelled", title: "Cancelled reservations", empty: "No cancelled reservations." },
+    { source: "reservations", status: "rejected", title: "Rejected reservations", empty: "No rejected reservations." },
+    { source: "history", title: "Reservation history", empty: "No past reservations yet." },
   ] as const;
   const toDateTimeLocal = (value: string) => new Date(value).toISOString().slice(0, 16);
   const formatReservationRange = (startAt: string, endAt: string) => {
@@ -43,7 +44,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
 
   return (
     <main className="simple-page">
-      <div className="simple-page-header"><div><p className="eyebrow">Administrator workspace</p><h1>Operations overview</h1><p className="heading-subtitle">Review reservations and create bookings for members or teams.</p></div><div className="admin-header-actions"><Link className="outline-button" href="/admin/users/new">Manage users</Link><Link className="outline-button" href="/admin/resources/new">Add resource</Link><Link className="primary-button" href="/admin/reservations/new"><span>+</span> Book for someone</Link></div></div>
+      <div className="simple-page-header"><div><p className="eyebrow">Administrator workspace</p><h1>Operations overview</h1><p className="heading-subtitle">Review reservations and create bookings for members or teams.</p></div><div className="admin-header-actions"><Link className="outline-button" href="/admin/users/new">Manage users</Link><Link className="outline-button" href="/admin/resources/new">Add & Manage resource</Link><Link className="primary-button" href="/admin/reservations/new"><span>+</span> Book for someone</Link></div></div>
       <section className="admin-banner"><div><strong>Signed in as {admin.fullName}</strong><span>Admin controls are enabled for this account.</span></div><form action={signOut}><button className="outline-button" type="submit">Sign out</button></form></section>
       {error && <p className="form-error admin-decision-error">{error}</p>}
       <div className="stat-grid admin-stat-grid">
@@ -52,13 +53,11 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       </div>
       <section className="admin-sections">
         {sections.map((section) => {
-          const sectionReservations = reservations.filter((reservation) => reservation.status === section.status);
-          return <section className="simple-panel admin-status-section" key={section.status}><div className="panel-header"><div><h2>{section.title}</h2><p>{section.description}</p></div></div>{sectionReservations.length === 0 ? <div className="admin-empty-state">{section.empty}</div> : sectionReservations.map((reservation) => renderReservation(reservation))}</section>;
+          const sectionReservations = section.source === "history"
+            ? history
+            : reservations.filter((reservation) => reservation.status === section.status);
+          return <section className={`simple-panel admin-status-section${section.source === "history" ? " admin-history-section" : ""}`} key={section.title}><div className="panel-header"><div><h2>{section.title}</h2></div></div>{sectionReservations.length === 0 ? <div className="admin-empty-state">{section.empty}</div> : sectionReservations.map((reservation) => renderReservation(reservation, section.source !== "history"))}</section>;
         })}
-        <section className="simple-panel admin-status-section admin-history-section">
-          <div className="panel-header"><div><h2>Reservation history</h2><p>Completed and past reservations across your workspace.</p></div></div>
-          {history.length === 0 ? <div className="admin-empty-state">No past reservations yet.</div> : history.map((reservation) => renderReservation(reservation, false))}
-        </section>
       </section>
     </main>
   );
