@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { withTransaction } from "@/src/lib/db";
 import { requireAdmin } from "@/src/server/auth";
+import { sendReservationSms } from "@/src/lib/sms";
 
 const schema = z.object({
   resourceId: z.coerce.number().int().positive(),
@@ -54,14 +55,15 @@ export async function createAdminReservation(formData: FormData) {
   const admin = await requireAdmin();
   const { parsed, startAt, endAt } = getReservationInput(formData);
   const decision = String(formData.get("conflictDecision") || "approve");
+  const revokedReservations: { userId: number; title: string }[] = [];
   if (!["approve", "revoke", "adjust"].includes(decision)) {
     redirect("/admin/reservations/new?error=Invalid reservation conflict decision");
   }
 
   try {
     await withTransaction(async (client) => {
-      const conflicts = await client.query<{ id: number }>(
-        `SELECT id FROM reservations
+      const conflicts = await client.query<{ id: number; userId: number; title: string }>(
+        `SELECT id, reserved_by AS "userId", title FROM reservations
          WHERE resource_id = $1 AND status = 'confirmed'
            AND tstzrange(start_at, end_at, '[)') && tstzrange($2, $3, '[)')
          FOR UPDATE`,
@@ -89,6 +91,7 @@ export async function createAdminReservation(formData: FormData) {
           `UPDATE reservations SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ANY($1::bigint[])`,
           [ids],
         );
+        revokedReservations.push(...conflicts.rows);
         for (const id of ids) {
           await client.query(
             `INSERT INTO reservation_audit_log (reservation_id, action, changed_by, note)
@@ -118,6 +121,13 @@ export async function createAdminReservation(formData: FormData) {
   }
 
   revalidatePath("/admin");
+  try {
+    for (const revoked of revokedReservations) {
+      await sendReservationSms(revoked.userId, `Your confirmed reservation "${revoked.title}" was cancelled because the resource was reassigned.`);
+    }
+  } catch (error) {
+    console.error("Reservation created, but a revocation SMS notification failed.", error);
+  }
   redirect("/admin");
 }
 
@@ -128,16 +138,19 @@ export async function cancelAdminReservation(formData: FormData) {
     redirect("/admin?error=Invalid reservation");
   }
 
+  let cancelledReservation: { userId: number; title: string } | null = null;
+
   try {
     await withTransaction(async (client) => {
-      const result = await client.query<{ id: number }>(
+      const result = await client.query<{ id: number; userId: number; title: string }>(
         `UPDATE reservations
          SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND status = 'confirmed' AND start_at > CURRENT_TIMESTAMP
-         RETURNING id`,
+         RETURNING id, reserved_by AS "userId", title`,
         [reservationId],
       );
       if (result.rowCount !== 1) throw new Error("Reservation cannot be cancelled");
+      cancelledReservation = { userId: result.rows[0].userId, title: result.rows[0].title };
       await client.query(
         `INSERT INTO reservation_audit_log (reservation_id, action, changed_by, note)
          VALUES ($1, 'cancelled', $2, 'Cancelled by administrator')`,
@@ -146,6 +159,18 @@ export async function cancelAdminReservation(formData: FormData) {
     });
   } catch {
     redirect("/admin?error=This reservation cannot be cancelled");
+  }
+
+  if (cancelledReservation) {
+    const cr = cancelledReservation as { userId: number; title: string };
+    try {
+      await sendReservationSms(
+        cr.userId,
+        `Your confirmed reservation "${cr.title}" has been cancelled by the administrator.`,
+      );
+    } catch (error) {
+      console.error("Reservation cancelled, but SMS notification failed.", error);
+    }
   }
 
   revalidatePath("/admin");

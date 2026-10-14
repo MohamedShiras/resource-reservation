@@ -60,6 +60,7 @@ export async function getAdminReservations() {
         SELECT 1
         FROM reservations AS confirmed
         WHERE confirmed.resource_id = reservations.resource_id
+          AND confirmed.id <> reservations.id
           AND confirmed.status::text = 'confirmed'
           AND tstzrange(confirmed.start_at, confirmed.end_at, '[)')
               && tstzrange(reservations.start_at, reservations.end_at, '[)')
