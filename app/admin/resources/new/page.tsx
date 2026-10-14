@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { requireAdmin } from "@/src/server/auth";
-import { createResource } from "@/src/actions/admin-resources";
-import { getAdminResourceFormOptions, getAdminResources } from "@/src/server/repositories/admin";
+import { createResource, endResourceMaintenance } from "@/src/actions/admin-resources";
+import { getAdminMaintenanceHistory, getAdminResourceFormOptions, getAdminResources } from "@/src/server/repositories/admin";
+import { getEnv } from "@/src/lib/env";
 import DeleteResourceButton from "./DeleteResourceButton";
+import ScheduleMaintenanceButton from "./ScheduleMaintenanceButton";
 
 export default async function AdminNewResourcePage({
   searchParams,
@@ -10,11 +12,17 @@ export default async function AdminNewResourcePage({
   searchParams: Promise<{ error?: string }>;
 }) {
   await requireAdmin();
-  const [{ error }, resources, options] = await Promise.all([
+  const [{ error }, resources, options, maintenanceHistory] = await Promise.all([
     searchParams,
     getAdminResources(),
     getAdminResourceFormOptions(),
+    getAdminMaintenanceHistory(),
   ]);
+  const maintenanceDateTime = new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: getEnv().APP_TIMEZONE,
+  });
 
   return (
     <main className="simple-page">
@@ -62,9 +70,13 @@ export default async function AdminNewResourcePage({
         </form>
         <section className="simple-panel resource-management-list">
           <div className="panel-header"><div><h2>Current resources</h2><p>{resources.length} resource{resources.length === 1 ? "" : "s"} available in this workspace.</p></div></div>
-          {resources.length === 0 ? <div className="admin-empty-state">No resources have been added yet.</div> : <div className="admin-resource-list">{resources.map((resource) => <article className="admin-resource-row" key={resource.id}><div className="admin-resource-copy"><span className={`resource-dot ${resource.kind === "facility" ? "blue" : resource.kind === "amenities" ? "violet" : "emerald"}`} /><div><strong>{resource.name}</strong><p>{resource.kind}</p></div></div><div className="admin-resource-actions"><span className={`status ${resource.status === "available" ? "available" : "in-use"}`}>{resource.status}</span><DeleteResourceButton resourceId={resource.id} resourceName={resource.name} /></div></article>)}</div>}
+          {resources.length === 0 ? <div className="admin-empty-state">No resources have been added yet.</div> : <div className="admin-resource-list">{resources.map((resource) => <article className="admin-resource-row" key={resource.id}><div className="admin-resource-copy"><span className={`resource-dot ${resource.kind === "facility" ? "blue" : resource.kind === "amenities" ? "violet" : "emerald"}`} /><div><strong>{resource.name}</strong><p>{resource.kind}</p></div></div><div className="admin-resource-actions"><span className={`status ${resource.status === "available" ? "available" : resource.status === "maintenance" ? "maintenance" : "in-use"}`}>{resource.status}</span>{resource.status === "maintenance" ? <form action={endResourceMaintenance}><input type="hidden" name="blackoutId" value={resource.activeMaintenanceId ?? ""} /><button className="resource-maintenance-button resource-maintenance-active" type="submit">Over Maintenance</button></form> : <ScheduleMaintenanceButton resourceId={resource.id} resourceName={resource.name} />}<DeleteResourceButton resourceId={resource.id} resourceName={resource.name} /></div></article>)}</div>}
         </section>
       </div>
+      <section className="simple-panel resource-maintenance-history">
+        <div className="panel-header"><div><h2>Resource Maintenance History</h2><p>Finished maintenance periods recorded for workspace resources.</p></div></div>
+        {maintenanceHistory.length === 0 ? <div className="admin-empty-state">No completed maintenance history yet.</div> : <div className="admin-maintenance-history-list">{maintenanceHistory.map((maintenance) => <article className="admin-maintenance-history-row" key={maintenance.id}><div><strong>{maintenance.resourceName}</strong><p>{maintenance.reason}</p></div><time>{maintenanceDateTime.format(new Date(maintenance.startAt))} – {maintenanceDateTime.format(new Date(maintenance.endAt))}</time><span className="maintenance-history-status">Finished</span></article>)}</div>}
+      </section>
     </main>
   );
 }

@@ -19,6 +19,14 @@ export type DashboardReservation = {
   reservedById: number;
 };
 
+export type DashboardBlackout = {
+  id: number;
+  startAt: string;
+  endAt: string;
+  reason: string;
+  resourceName: string;
+};
+
 export type DashboardData = {
   resourceCount: number;
   availableResourceCount: number;
@@ -59,12 +67,43 @@ export async function getCalendarReservations(
   return result.rows;
 }
 
+export async function getCalendarBlackouts(timeZone: string, month: string): Promise<DashboardBlackout[]> {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const startDate = `${month}-01`;
+  const endDate = new Date(Date.UTC(year, monthNumber, 1)).toISOString().slice(0, 10);
+  const result = await query<DashboardBlackout>(
+    `SELECT
+       blackouts.id,
+       blackouts.start_at AS "startAt",
+       blackouts.end_at AS "endAt",
+       blackouts.reason,
+       resources.name AS "resourceName"
+     FROM blackouts
+     JOIN resources ON resources.id = blackouts.resource_id
+     WHERE (blackouts.start_at AT TIME ZONE $1)::date < $3::date
+       AND (blackouts.end_at AT TIME ZONE $1)::date >= $2::date
+       AND blackouts.active = true
+     ORDER BY blackouts.start_at`,
+    [timeZone, startDate, endDate],
+  );
+  return result.rows;
+}
+
 export async function getDashboardData(timeZone: string, reservationUserId?: number): Promise<DashboardData> {
   const [resourceSummary, bookingSummary, resources, reservations] = await Promise.all([
     query<{ resource_count: number; available_resource_count: number }>(
       `SELECT
         COUNT(*)::int AS resource_count,
-        COUNT(*) FILTER (WHERE status::text = 'available')::int AS available_resource_count
+        COUNT(*) FILTER (
+          WHERE status::text = 'available'
+            AND NOT EXISTS (
+              SELECT 1 FROM blackouts
+              WHERE blackouts.resource_id = resources.id
+                AND blackouts.active = true
+                AND blackouts.start_at <= CURRENT_TIMESTAMP
+                AND blackouts.end_at > CURRENT_TIMESTAMP
+            )
+        )::int AS available_resource_count
        FROM resources`,
     ),
     query<{ booking_count: number; upcoming_booking_count: number }>(
@@ -80,7 +119,14 @@ export async function getDashboardData(timeZone: string, reservationUserId?: num
       [timeZone],
     ),
     query<DashboardResource>(
-      `SELECT id, name, kind::text, status::text
+      `SELECT resources.id, resources.name, resources.kind::text,
+              CASE WHEN EXISTS (
+                SELECT 1 FROM blackouts
+                WHERE blackouts.resource_id = resources.id
+                  AND blackouts.active = true
+                  AND blackouts.start_at <= CURRENT_TIMESTAMP
+                  AND blackouts.end_at > CURRENT_TIMESTAMP
+              ) THEN 'maintenance' ELSE resources.status::text END AS status
        FROM resources
        ORDER BY name`,
     ),

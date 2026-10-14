@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { withTransaction } from "@/src/lib/db";
+import { query, withTransaction } from "@/src/lib/db";
 import { requireAdmin } from "@/src/server/auth";
 
 const createResourceSchema = z.object({
@@ -15,6 +15,12 @@ const createResourceSchema = z.object({
 });
 
 const RESOURCE_HAS_HISTORY = "RESOURCE_HAS_HISTORY";
+const maintenanceSchema = z.object({
+  resourceId: z.coerce.number().int().positive(),
+  startAt: z.string().datetime({ local: true }),
+  endAt: z.string().datetime({ local: true }),
+  reason: z.string().trim().min(1).max(255),
+});
 
 export async function createResource(formData: FormData) {
   await requireAdmin();
@@ -108,6 +114,95 @@ export async function deleteResource(formData: FormData) {
   revalidatePath("/admin");
   revalidatePath("/admin/resources/new");
   revalidatePath("/admin/reservations/new");
+  revalidatePath("/resources");
+  revalidatePath("/reservations/new");
+  revalidatePath("/");
+  redirect("/admin/resources/new");
+}
+
+export async function scheduleResourceMaintenance(formData: FormData) {
+  const admin = await requireAdmin();
+  const parsed = maintenanceSchema.safeParse(Object.fromEntries(formData));
+
+  if (!parsed.success) {
+    redirect("/admin/resources/new?error=Enter a valid maintenance period and reason.");
+  }
+
+  const startAt = new Date(parsed.data.startAt);
+  const endAt = new Date(parsed.data.endAt);
+  if (endAt <= startAt || startAt < new Date()) {
+    redirect("/admin/resources/new?error=Maintenance must start in the future and end after it starts.");
+  }
+
+  try {
+    await withTransaction(async (client) => {
+      const resource = await client.query<{ id: number }>(
+        `SELECT id FROM resources WHERE id = $1 FOR UPDATE`,
+        [parsed.data.resourceId],
+      );
+      if (resource.rowCount !== 1) {
+        throw new Error("RESOURCE_NOT_FOUND");
+      }
+
+      const conflict = await client.query<{ id: number }>(
+        `SELECT id
+         FROM reservations
+         WHERE resource_id = $1
+           AND status::text = 'confirmed'
+           AND tstzrange(start_at, end_at, '[)') && tstzrange($2::timestamptz, $3::timestamptz, '[)')
+         LIMIT 1`,
+        [parsed.data.resourceId, startAt.toISOString(), endAt.toISOString()],
+      );
+      if (conflict.rowCount) {
+        throw new Error("MAINTENANCE_RESERVATION_CONFLICT");
+      }
+
+      await client.query(
+        `INSERT INTO blackouts (resource_id, created_by, start_at, end_at, reason, active)
+         VALUES ($1, $2, $3, $4, $5, true)`,
+        [parsed.data.resourceId, admin.id, startAt.toISOString(), endAt.toISOString(), parsed.data.reason],
+      );
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "MAINTENANCE_RESERVATION_CONFLICT") {
+      redirect("/admin/resources/new?error=Maintenance overlaps a confirmed reservation.");
+    }
+    redirect("/admin/resources/new?error=The maintenance period could not be scheduled.");
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/resources/new");
+  revalidatePath("/resources");
+  revalidatePath("/reservations/new");
+  revalidatePath("/admin/reservations/new");
+  revalidatePath("/");
+  redirect("/admin/resources/new");
+}
+
+export async function endResourceMaintenance(formData: FormData) {
+  await requireAdmin();
+  const blackoutId = Number(formData.get("blackoutId"));
+
+  if (!Number.isInteger(blackoutId) || blackoutId <= 0) {
+    redirect("/admin/resources/new?error=The maintenance period could not be ended.");
+  }
+
+  try {
+    const result = await query(
+      `UPDATE blackouts
+       SET active = false
+       WHERE id = $1 AND active = true`,
+      [blackoutId],
+    );
+    if (result.rowCount !== 1) {
+      throw new Error("MAINTENANCE_NOT_ACTIVE");
+    }
+  } catch {
+    redirect("/admin/resources/new?error=The maintenance period could not be ended.");
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/resources/new");
   revalidatePath("/resources");
   revalidatePath("/reservations/new");
   revalidatePath("/");

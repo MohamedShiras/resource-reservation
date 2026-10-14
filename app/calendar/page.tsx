@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { connection } from "next/server";
-import { getCalendarReservations, type DashboardReservation } from "@/src/server/repositories/dashboard";
+import { getCalendarBlackouts, getCalendarReservations, type DashboardBlackout, type DashboardReservation } from "@/src/server/repositories/dashboard";
 import { getEnv } from "@/src/lib/env";
 import { requireUser } from "@/src/server/auth";
 
@@ -49,7 +49,11 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const todayKey = `${todayParts.year}-${todayParts.month}-${todayParts.day}`;
   const { month: requestedMonth } = await searchParams;
   const selectedMonth = normalizeMonth(requestedMonth, currentMonth);
-  const data = { reservations: await getCalendarReservations(timeZone, selectedMonth, user.id) };
+  const [reservations, blackouts] = await Promise.all([
+    getCalendarReservations(timeZone, selectedMonth, user.id),
+    getCalendarBlackouts(timeZone, selectedMonth),
+  ]);
+  const data = { reservations, blackouts };
   const [selectedYear, selectedMonthNumber] = selectedMonth.split("-").map(Number);
   const year = selectedYear;
   const month = selectedMonthNumber - 1;
@@ -64,6 +68,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     return day > 0 && day <= daysInMonth ? day : null;
   });
   const reservationsByDay = new Map<string, DashboardReservation[]>();
+  const blackoutsByDay = new Map<string, DashboardBlackout[]>();
 
   for (const reservation of data.reservations) {
     const key = dateKey(new Date(reservation.startAt), timeZone);
@@ -75,13 +80,26 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   for (const reservations of reservationsByDay.values()) {
     reservations.sort((left, right) => Number(right.reservedById === user.id) - Number(left.reservedById === user.id) || new Date(left.startAt).valueOf() - new Date(right.startAt).valueOf());
   }
+  for (const blackout of data.blackouts) {
+    const startKey = dateKey(new Date(blackout.startAt), timeZone);
+    const endKey = dateKey(new Date(blackout.endAt), timeZone);
+    const cursor = new Date(`${startKey}T00:00:00Z`);
+    const last = new Date(`${endKey}T00:00:00Z`);
+    while (cursor <= last) {
+      const key = cursor.toISOString().slice(0, 10);
+      const entries = blackoutsByDay.get(key) ?? [];
+      entries.push(blackout);
+      blackoutsByDay.set(key, entries);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
 
   const timeFormatter = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", timeZone });
 
   return (
     <main className="simple-page">
       <div className="simple-page-header"><div><Link className="back-link" href="/">← Back to overview</Link><p className="eyebrow">Workspace</p><h1>Calendar</h1><p className="heading-subtitle">Check your reservations and workspace availability at a glance.</p></div><Link className="primary-button" href="/reservations/new"><span>+</span> New reservation</Link></div>
-      <section className="calendar-legend" aria-label="Calendar reservation types"><span className="calendar-legend-item"><i className="calendar-dot mine" /> My reservations</span><span className="calendar-legend-item"><i className="calendar-dot other" /> Other reservations</span></section>
+      <section className="calendar-legend" aria-label="Calendar reservation types"><span className="calendar-legend-item"><i className="calendar-dot mine" /> My reservations</span><span className="calendar-legend-item"><i className="calendar-dot other" /> Other reservations</span><span className="calendar-legend-item"><i className="calendar-dot maintenance" /> Maintenance</span></section>
       <section className="simple-panel calendar-panel">
         <div className="calendar-toolbar"><div className="calendar-month-navigation"><Link className="calendar-nav-button" href={`/calendar?month=${previousMonth}`} aria-label="Previous month">←</Link><h2>{monthName}</h2><Link className="calendar-nav-button" href={`/calendar?month=${nextMonth}`} aria-label="Next month">→</Link><Link className="calendar-today-button" href="/calendar">Today</Link></div><span>{data.reservations.length} confirmed reservation{data.reservations.length === 1 ? "" : "s"} this month</span></div>
         <div className="calendar-weekdays">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <span key={day}>{day}</span>)}</div>
@@ -89,10 +107,11 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           {cells.map((day, index) => {
             const key = day === null ? `empty-${index}` : `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
             const reservations = day === null ? [] : reservationsByDay.get(key) ?? [];
-            return <div className={`calendar-cell${day === null ? " calendar-cell-empty" : ""}${key === todayKey ? " calendar-cell-today" : ""}`} key={key}>{day !== null && <><time>{key === todayKey ? <span className="calendar-today-number" aria-label="Today">{day}</span> : day}</time><div className="calendar-cell-reservations">{reservations.map((reservation) => { const isMine = reservation.reservedById === user.id; return <article className={`calendar-event ${isMine ? "calendar-event-mine" : "calendar-event-other"}`} key={reservation.id}><strong>{reservation.title}</strong><span>{reservation.resourceName}</span><small>{timeFormatter.format(new Date(reservation.startAt))}</small><small className="calendar-event-owner" title={isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}>{isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}</small></article>; })}</div></>}</div>;
+            const dayBlackouts = day === null ? [] : blackoutsByDay.get(key) ?? [];
+            return <div className={`calendar-cell${day === null ? " calendar-cell-empty" : ""}${key === todayKey ? " calendar-cell-today" : ""}`} key={key}>{day !== null && <><time>{key === todayKey ? <span className="calendar-today-number" aria-label="Today">{day}</span> : day}</time><div className="calendar-cell-reservations">{dayBlackouts.map((blackout) => <article className="calendar-event calendar-event-maintenance" key={`maintenance-${blackout.id}-${key}`}><strong>Maintenance</strong><span>{blackout.resourceName}</span><small>{timeFormatter.format(new Date(blackout.startAt))}</small><small className="calendar-event-owner">{blackout.reason}</small></article>)}{reservations.map((reservation) => { const isMine = reservation.reservedById === user.id; return <article className={`calendar-event ${isMine ? "calendar-event-mine" : "calendar-event-other"}`} key={reservation.id}><strong>{reservation.title}</strong><span>{reservation.resourceName}</span><small>{timeFormatter.format(new Date(reservation.startAt))}</small><small className="calendar-event-owner" title={isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}>{isMine ? "My reservation" : `Reserved by ${reservation.reservedBy}`}</small></article>; })}</div></>}</div>;
           })}
         </div>
-        {data.reservations.length === 0 && <div className="calendar-empty">No upcoming confirmed reservations.</div>}
+        {data.reservations.length === 0 && data.blackouts.length === 0 && <div className="calendar-empty">No upcoming confirmed reservations or maintenance.</div>}
       </section>
       <section className="simple-panel calendar-confirmed-list">
         <div className="panel-header">

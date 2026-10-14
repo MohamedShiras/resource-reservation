@@ -28,6 +28,19 @@ export async function requestReservation(formData: FormData) {
 
   try {
     await withTransaction(async (client) => {
+      const maintenance = await client.query(
+        `SELECT id
+         FROM blackouts
+         WHERE resource_id = $1
+           AND active = true
+           AND tstzrange(start_at, end_at, '[)') && tstzrange($2::timestamptz, $3::timestamptz, '[)')
+         LIMIT 1`,
+        [parsed.data.resourceId, startAt, endAt],
+      );
+      if (maintenance.rowCount) {
+        throw new Error("RESOURCE_MAINTENANCE_CONFLICT");
+      }
+
       const result = await client.query<{ id: number }>(
         `INSERT INTO reservations (resource_id, reserved_by, title, purpose, start_at, end_at, status, priority)
          VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
@@ -40,7 +53,10 @@ export async function requestReservation(formData: FormData) {
         [result.rows[0].id, user.id, `Requested with ${parsed.data.priority} priority`],
       );
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "RESOURCE_MAINTENANCE_CONFLICT") {
+      redirect("/reservations/new?error=This resource is scheduled for maintenance during that time");
+    }
     redirect("/reservations/new?error=The request could not be submitted");
   }
   revalidatePath("/admin");
