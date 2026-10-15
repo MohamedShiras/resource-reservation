@@ -1,15 +1,20 @@
 import Link from "next/link";
 import { requireAdmin } from "@/src/server/auth";
 import { createUser } from "@/src/actions/admin-users";
-import { getAdminUsers } from "@/src/server/repositories/admin";
+import { getAdminUserFormOptions, getAdminUsers } from "@/src/server/repositories/admin";
+import DeleteUserButton from "./DeleteUserButton";
 
 export default async function AdminNewUserPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; deleteError?: string }>;
 }) {
   await requireAdmin();
-  const [{ error }, users] = await Promise.all([searchParams, getAdminUsers()]);
+  const [{ error, deleteError }, users, formOptions] = await Promise.all([
+    searchParams,
+    getAdminUsers(),
+    getAdminUserFormOptions(),
+  ]);
 
   return (
     <main className="simple-page">
@@ -37,6 +42,24 @@ export default async function AdminNewUserPage({
             <input name="password" type="password" placeholder="At least 8 characters" required minLength={8} maxLength={100} />
           </label>
           <label>
+            Team
+            <select name="teamId" defaultValue="">
+              <option value="">No team assignment</option>
+              {formOptions.teams.map((team) => (
+                <option value={team.id} key={team.id}>{team.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Team member role
+            <select name="memberRole" defaultValue="">
+              <option value="">Select a role</option>
+              {formOptions.teamMemberRoles.map((role) => (
+                <option value={role.name} key={role.id}>{role.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
             User role
             <select name="role" defaultValue="member" required>
               <option value="member">Member</option>
@@ -48,7 +71,8 @@ export default async function AdminNewUserPage({
         </form>
         <section className="simple-panel resource-management-list">
           <div className="panel-header"><div><h2>Current users</h2><p>{users.length} user{users.length === 1 ? "" : "s"} in this workspace.</p></div></div>
-          <div className="admin-resource-list">{users.map((user) => <article className="admin-resource-row" key={user.id}><div className="admin-user-copy"><div className="admin-user-avatar">{user.fullName.slice(0, 2).toUpperCase()}</div><div><strong>{user.fullName}</strong><p>{user.email}</p></div></div><div className="admin-user-meta"><span className="admin-user-role">{user.role}</span><span className={`status ${user.isActive ? "available" : "in-use"}`}>{user.isActive ? "active" : "inactive"}</span></div></article>)}</div>
+          {deleteError && <p className="auth-error" role="alert">{deleteError}</p>}
+          <div className="admin-resource-list">{users.map((user) => <article className="admin-resource-row" key={user.id}><div className="admin-user-copy"><div className="admin-user-avatar">{user.fullName.slice(0, 2).toUpperCase()}</div><div><strong>{user.fullName}</strong><p>{user.email}</p>{user.teamName && <p>Team: {user.teamName}</p>}{user.teamMemberRole && <p>Team member role: {user.teamMemberRole}</p>}</div></div><div className="admin-user-meta"><span className="admin-user-role">{user.role}</span><span className={`status ${user.isActive ? "available" : "in-use"}`}>{user.isActive ? "active" : "inactive"}</span><DeleteUserButton userId={user.id} userName={user.fullName} /></div></article>)}</div>
         </section>
       </div>
     </main>
