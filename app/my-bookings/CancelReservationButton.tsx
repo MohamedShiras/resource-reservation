@@ -10,7 +10,7 @@ export default function CancelReservationButton({ reservationId }: { reservation
     <>
       <form ref={formRef} action={cancelReservation}>
         <input type="hidden" name="reservationId" value={reservationId} />
-        <button className="my-booking-cancel-button" type="button" onClick={() => dialogRef.current?.showModal()}>
+        <button className="admin-cancel-reservation-button" type="button" onClick={() => dialogRef.current?.showModal()}>
           Cancel
         </button>
       </form>

@@ -48,6 +48,13 @@ export type AdminUser = {
   email: string;
   role: string;
   isActive: boolean;
+  teamName: string | null;
+  teamMemberRole: string | null;
+};
+
+export type AdminUserFormOptions = {
+  teams: { id: number; name: string }[];
+  teamMemberRoles: { id: number; name: string }[];
 };
 
 export async function getAdminReservations() {
@@ -84,7 +91,26 @@ export async function getAdminReservations() {
   return result.rows;
 }
 
-export async function getAdminReservationHistory() {
+export async function getAdminReservationHistory(
+  filters: { date?: string; resourceId?: number; timeZone?: string } = {},
+) {
+  const params: (string | number)[] = [];
+  const where: string[] = ["reservations.end_at < CURRENT_TIMESTAMP"];
+
+  if (filters.resourceId) {
+    params.push(filters.resourceId);
+    where.push(`reservations.resource_id = $${params.length}`);
+  }
+
+  if (filters.date && /^\d{4}-\d{2}-\d{2}$/.test(filters.date)) {
+    const tz = filters.timeZone ?? "Asia/Colombo";
+    params.push(filters.date, tz);
+    where.push(
+      `(reservations.start_at AT TIME ZONE $${params.length})::date <= $${params.length - 1}::date` +
+      ` AND (reservations.end_at AT TIME ZONE $${params.length})::date >= $${params.length - 1}::date`,
+    );
+  }
+
   const result = await query<AdminReservation>(
     `SELECT
       reservations.id,
@@ -102,8 +128,16 @@ export async function getAdminReservationHistory() {
      JOIN resources ON resources.id = reservations.resource_id
      JOIN users ON users.id = reservations.reserved_by
      LEFT JOIN teams ON teams.id = reservations.team_id
-     WHERE reservations.end_at < CURRENT_TIMESTAMP
+     WHERE ${where.join(" AND ")}
      ORDER BY reservations.end_at DESC`,
+    params.length ? params : undefined,
+  );
+  return result.rows;
+}
+
+export async function getResourcesForFilter(): Promise<{ id: number; name: string }[]> {
+  const result = await query<{ id: number; name: string }>(
+    `SELECT id, name FROM resources ORDER BY name`,
   );
   return result.rows;
 }
@@ -145,7 +179,26 @@ export async function getAdminResources(): Promise<AdminResource[]> {
   return result.rows;
 }
 
-export async function getAdminMaintenanceHistory(): Promise<AdminMaintenanceHistory[]> {
+export async function getAdminMaintenanceHistory(
+  filters: { date?: string; resourceId?: number; timeZone?: string } = {},
+): Promise<AdminMaintenanceHistory[]> {
+  const params: (string | number)[] = [];
+  const where: string[] = ["(blackouts.active = false OR blackouts.end_at <= CURRENT_TIMESTAMP)"];
+
+  if (filters.resourceId) {
+    params.push(filters.resourceId);
+    where.push(`blackouts.resource_id = $${params.length}`);
+  }
+
+  if (filters.date && /^\d{4}-\d{2}-\d{2}$/.test(filters.date)) {
+    const tz = filters.timeZone ?? "Asia/Colombo";
+    params.push(filters.date, tz);
+    where.push(
+      `(blackouts.start_at AT TIME ZONE $${params.length})::date <= $${params.length - 1}::date` +
+      ` AND (blackouts.end_at AT TIME ZONE $${params.length})::date >= $${params.length - 1}::date`,
+    );
+  }
+
   const result = await query<AdminMaintenanceHistory>(
     `SELECT
        blackouts.id,
@@ -155,8 +208,9 @@ export async function getAdminMaintenanceHistory(): Promise<AdminMaintenanceHist
        blackouts.reason
      FROM blackouts
      JOIN resources ON resources.id = blackouts.resource_id
-     WHERE blackouts.active = false OR blackouts.end_at <= CURRENT_TIMESTAMP
+     WHERE ${where.join(" AND ")}
      ORDER BY blackouts.end_at DESC`,
+    params.length ? params : undefined,
   );
   return result.rows;
 }
@@ -168,6 +222,21 @@ export async function getAdminResourceFormOptions(): Promise<AdminResourceFormOp
   return { categories: categories.rows };
 }
 
+export async function getAdminUserFormOptions(): Promise<AdminUserFormOptions> {
+  const teams = await query<{ id: number; name: string }>(
+    `SELECT id, name FROM teams
+     ORDER BY name`,
+  );
+  const teamMemberRoles = await query<{ id: number; name: string }>(
+    `SELECT role_id AS id, role_name AS name FROM team_member_role ORDER BY role_id`,
+  );
+
+  return {
+    teams: teams.rows,
+    teamMemberRoles: teamMemberRoles.rows,
+  };
+}
+
 export async function getAdminUsers(): Promise<AdminUser[]> {
   const result = await query<AdminUser>(
     `SELECT
@@ -175,8 +244,18 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
        full_name AS "fullName",
        email,
        role::text,
-       is_active AS "isActive"
+       is_active AS "isActive",
+       user_teams."teamName",
+       user_teams."teamMemberRole"
      FROM users
+     LEFT JOIN LATERAL (
+       SELECT
+         STRING_AGG(DISTINCT teams.name, ', ' ORDER BY teams.name) AS "teamName",
+         STRING_AGG(DISTINCT team_members.member_role, ', ' ORDER BY team_members.member_role) AS "teamMemberRole"
+       FROM team_members
+       JOIN teams ON teams.id = team_members.team_id
+       WHERE team_members.user_id = users.id
+     ) AS user_teams ON true
      ORDER BY full_name`,
   );
   return result.rows;

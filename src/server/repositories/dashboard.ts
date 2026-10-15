@@ -17,6 +17,7 @@ export type DashboardReservation = {
   resourceName: string;
   reservedBy: string;
   reservedById: number;
+  teamName?: string | null;
 };
 
 export type DashboardBlackout = {
@@ -32,6 +33,7 @@ export type DashboardData = {
   availableResourceCount: number;
   bookingCount: number;
   upcomingBookingCount: number;
+  pendingRequestCount: number;
   resources: DashboardResource[];
   reservations: DashboardReservation[];
 };
@@ -52,10 +54,17 @@ export async function getCalendarReservations(
       reservations.end_at AS "endAt",
       resources.name AS "resourceName",
       users.full_name AS "reservedBy",
-      reservations.reserved_by AS "reservedById"
+      reservations.reserved_by AS "reservedById",
+      user_teams."teamName"
      FROM reservations
      JOIN resources ON resources.id = reservations.resource_id
      JOIN users ON users.id = reservations.reserved_by
+     LEFT JOIN LATERAL (
+       SELECT STRING_AGG(teams.name, ', ' ORDER BY teams.name) AS "teamName"
+       FROM team_members
+       JOIN teams ON teams.id = team_members.team_id
+       WHERE team_members.user_id = reservations.reserved_by
+     ) AS user_teams ON true
      WHERE reservations.status::text = 'confirmed'
        AND (reservations.start_at AT TIME ZONE $1)::date < $3::date
        AND (reservations.end_at AT TIME ZONE $1)::date >= $2::date
@@ -106,17 +115,22 @@ export async function getDashboardData(timeZone: string, reservationUserId?: num
         )::int AS available_resource_count
        FROM resources`,
     ),
-    query<{ booking_count: number; upcoming_booking_count: number }>(
+    query<{ booking_count: number; upcoming_booking_count: number; pending_request_count: number }>(
       `SELECT
         COUNT(*) FILTER (
           WHERE status::text = 'confirmed'
           AND (start_at AT TIME ZONE $1)::date = (CURRENT_TIMESTAMP AT TIME ZONE $1)::date
+          AND ($2::bigint IS NULL OR reserved_by = $2)
         )::int AS booking_count,
         COUNT(*) FILTER (
-          WHERE status::text = 'confirmed' AND start_at >= CURRENT_TIMESTAMP
-        )::int AS upcoming_booking_count
+          WHERE status::text = 'confirmed' AND start_at > CURRENT_TIMESTAMP
+          AND ($2::bigint IS NULL OR reserved_by = $2)
+        )::int AS upcoming_booking_count,
+        COUNT(*) FILTER (
+          WHERE status::text = 'pending' AND end_at >= CURRENT_TIMESTAMP
+        )::int AS pending_request_count
        FROM reservations`,
-      [timeZone],
+      [timeZone, reservationUserId ?? null],
     ),
     query<DashboardResource>(
       `SELECT resources.id, resources.name, resources.kind::text,
@@ -156,6 +170,7 @@ export async function getDashboardData(timeZone: string, reservationUserId?: num
     availableResourceCount: resourceSummary.rows[0]?.available_resource_count ?? 0,
     bookingCount: bookingSummary.rows[0]?.booking_count ?? 0,
     upcomingBookingCount: bookingSummary.rows[0]?.upcoming_booking_count ?? 0,
+    pendingRequestCount: bookingSummary.rows[0]?.pending_request_count ?? 0,
     resources: resources.rows,
     reservations: reservations.rows,
   };
